@@ -16,38 +16,27 @@ defmodule Mix.Tasks.Test.Watch do
   end
 
   def setup(args) do
-    Agent.start_link(
-      fn -> %{ not_running_tests?: true, args: args} end,
-      name: :mix_test_watch_state
-    )
     Application.start :fs
-    GenServer.start_link( __MODULE__, [], name: __MODULE__ )
+    GenServer.start_link( __MODULE__, args, name: __MODULE__ )
   end
 
-  def init(_) do
+  def init(args) do
     :fs.subscribe
-    {:ok, []}
+    {:ok, args}
   end
 
-  def handle_info({_pid, {:fs, :file_event}, {path, _event}}, _) do
+  def handle_info({_pid, {:fs, :file_event}, {path, _event}}, args) do
     path = to_string path
-    if watching?(path) && not_running_tests? do run_tests end
-    {:noreply, []}
-  end
-
-  defp not_running_tests? do
-    Agent.get( :mix_test_watch_state, fn x -> x.not_running_tests? end )
+    if watching?(path) do run_tests(args) end
+    {:noreply, args}
   end
 
   defp watching?(path) do
     Regex.match?( ~r/\.exs?\z/i, path )
   end
 
-  defp run_tests(agent \\ :mix_test_watch_state) do
+  defp run_tests(args) do
     IO.puts "Running tests..."
-    args = Agent.get_and_update(
-      agent, fn x -> { x.args, %{ x | not_running_tests?: false } } end
-    )
 
     project = Mix.Project.config
     test_paths = project[:test_paths] || ["test"]
@@ -59,7 +48,5 @@ defmodule Mix.Tasks.Test.Watch do
     Mix.Task.run("test", args)
     # As the configuration will grow indefinitly, we cut it after each run
     :elixir_config.put(:at_exit, [])
-
-    Agent.update( agent, fn x -> %{ x | not_running_tests?: true } end )
   end
 end
